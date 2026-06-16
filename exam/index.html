@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Embedded Systems Dashboard</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        --bg-color: #030712;
+        --panel-color: rgba(17, 24, 39, 0.7);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --accent-cyan: #06b6d4;
+        --accent-purple: #a855f7;
+        --accent-green: #10b981;
+        --accent-red: #ef4444;
+        --text-main: #f3f4f6;
+        --text-muted: #9ca3af;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Inter", sans-serif;
+      }
+
+      body {
+        background-color: var(--bg-color);
+        background-image:
+          radial-gradient(
+            at 0% 0%,
+            rgba(6, 182, 212, 0.15) 0px,
+            transparent 50%
+          ),
+          radial-gradient(
+            at 100% 100%,
+            rgba(168, 85, 247, 0.15) 0px,
+            transparent 50%
+          );
+        color: var(--text-main);
+        min-height: 100vh;
+        padding: 2rem 1rem;
+      }
+
+      .container {
+        max-w: 1200px;
+        margin: 0 auto;
+        width: 100%;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.5rem 2rem;
+        background: var(--panel-color);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--panel-border);
+        border-radius: 24px;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+      }
+
+      .brand h1 {
+        font-size: 1.75rem;
+        font-weight: 800;
+        letter-spacing: -0.05em;
+        background: linear-gradient(
+          to right,
+          var(--accent-cyan),
+          var(--accent-purple)
+        );
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .brand p {
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        margin-top: 0.1rem;
+      }
+
+      .connection-wrapper {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+
+      .status-pill {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: 9999px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        background: rgba(239, 68, 68, 0.1);
+        color: var(--accent-red);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        transition: all 0.3s ease;
+      }
+
+      .status-pill.connected {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--accent-green);
+        border: 1px solid rgba(16, 185, 129, 0.2);
+      }
+
+      .pulse-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background-color: var(--accent-red);
+      }
+
+      .status-pill.connected .pulse-dot {
+        background-color: var(--accent-green);
+        box-shadow: 0 0 12px var(--accent-green);
+        animation: pulse-green 2s infinite;
+      }
+
+      @keyframes pulse-green {
+        0% {
+          transform: scale(0.9);
+          opacity: 0.6;
+        }
+        50% {
+          transform: scale(1.1);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(0.9);
+          opacity: 0.6;
+        }
+      }
+
+      .dashboard-layout {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 2rem;
+      }
+
+      @media (min-width: 900px) {
+        .dashboard-layout {
+          grid-template-columns: 350px 1fr;
+        }
+      }
+
+      .panel {
+        background: var(--panel-color);
+        backdrop-filter: blur(12px);
+        border: 1px solid var(--panel-border);
+        border-radius: 24px;
+        padding: 2rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+      }
+
+      .metrics-sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+      }
+
+      .metric-card {
+        text-align: center;
+      }
+
+      .panel-title {
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-muted);
+        margin-bottom: 1.5rem;
+        font-weight: 600;
+      }
+
+      .display-container {
+        position: relative;
+        padding: 2.5rem 1rem;
+        background: rgba(255, 255, 255, 0.02);
+        border-radius: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.03);
+        margin-bottom: 1.5rem;
+      }
+
+      .main-value {
+        font-size: 4.5rem;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        line-height: 1;
+        color: var(--text-main);
+        transition: color 0.2s ease;
+      }
+
+      .meta-data {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        padding-top: 1rem;
+      }
+
+      .meta-item span {
+        display: block;
+        font-weight: 600;
+        color: var(--text-main);
+        margin-top: 0.2rem;
+      }
+
+      .chart-panel {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .chart-container {
+        flex: 1;
+        position: relative;
+        min-height: 280px;
+        width: 100%;
+      }
+
+      .terminal-panel {
+        grid-column: 1 / -1;
+        padding: 1.5rem;
+      }
+
+      .terminal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        padding-bottom: 0.75rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .terminal-title {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.8rem;
+        color: var(--accent-cyan);
+        text-transform: uppercase;
+      }
+
+      .terminal-stream {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 0.8rem;
+        height: 120px;
+        overflow-y: auto;
+        color: #a7f3d0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.4rem;
+        padding-right: 0.5rem;
+      }
+
+      .terminal-stream::-webkit-scrollbar {
+        width: 4px;
+      }
+      .terminal-stream::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 2px;
+      }
+
+      .log-entry {
+        line-height: 1.4;
+        word-break: break-all;
+      }
+      .log-entry .timestamp {
+        color: var(--text-muted);
+        margin-right: 0.5rem;
+      }
+      .log-entry.error {
+        color: var(--accent-red);
+      }
+      .log-entry.system {
+        color: var(--accent-purple);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="brand">
+          <h1>IoT Monitor</h1>
+          <p>Telemetry stream pipelines</p>
+        </div>
+        <div class="connection-wrapper">
+          <div id="connection-status" class="status-pill">
+            <span class="pulse-dot"></span>
+            <span id="status-text">Disconnected</span>
+          </div>
+        </div>
+      </header>
+
+      <div class="dashboard-layout">
+        <div class="metrics-sidebar">
+          <div class="panel metric-card">
+            <div class="panel-title">Core Telemetry</div>
+            <div class="display-container">
+              <div class="main-value">
+                <span id="temp-value">--</span
+                ><span
+                  style="
+                    font-size: 2rem;
+                    color: var(--accent-cyan);
+                    font-weight: 400;
+                    margin-left: 0.2rem;
+                  "
+                  >°C</span
+                >
+              </div>
+            </div>
+            <div class="meta-data">
+              <div class="meta-item" style="text-align: left">
+                Topic
+                <span
+                  id="meta-topic"
+                  style="
+                    font-family: &quot;JetBrains Mono&quot;, monospace;
+                    font-size: 0.75rem;
+                  "
+                  >...</span
+                >
+              </div>
+              <div class="meta-item" style="text-align: right">
+                Last Updated
+                <span id="meta-time">--:--:--</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel chart-panel">
+          <div class="panel-title">Realtime Waveform Analysis</div>
+          <div class="chart-container">
+            <canvas id="liveTimelineChart"></canvas>
+          </div>
+        </div>
+
+        <div class="panel terminal-panel">
+          <div class="terminal-header">
+            <div class="terminal-title">> Pipeline Debug Output</div>
+            <div
+              style="
+                font-size: 0.75rem;
+                color: var(--text-muted);
+                font-family: &quot;JetBrains Mono&quot;, monospace;
+              "
+              id="broker-identity"
+            >
+              Offline
+            </div>
+          </div>
+          <div class="terminal-stream" id="log-stream">
+            <div class="log-entry system">
+              <span class="timestamp">[SYSTEM]</span>Environment initialized.
+              Initializing MQTT client instances...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // MQTT Configuration
+      const MQTT_BROKER = "broker.hivemq.com";
+      const MQTT_PORT = 8884;
+      const MQTT_TOPIC = "exam/device/temp&mqtt/derick";
+      const clientID =
+        "web_dashboard_" + Math.random().toString(16).substr(2, 8);
+      let client;
+
+      // Visual Assets Tracking & Charting
+      let logChart;
+      const maxBufferPoints = 30;
+      const trackingData = [];
+      const trackingLabels = [];
+
+      // UI Reference Selectors
+      const tempValueEl = document.getElementById("temp-value");
+      const statusPill = document.getElementById("connection-status");
+      const statusText = document.getElementById("status-text");
+      const metaTopic = document.getElementById("meta-topic");
+      const metaTime = document.getElementById("meta-time");
+      const logStream = document.getElementById("log-stream");
+      const brokerIdentity = document.getElementById("broker-identity");
+
+      // Render Canvas Graph Structure
+      function initTimelineGraph() {
+        const ctx = document
+          .getElementById("liveTimelineChart")
+          .getContext("2d");
+        logChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: trackingLabels,
+            datasets: [
+              {
+                label: "Temperature Telemetry",
+                data: trackingData,
+                borderColor: "#06b6d4",
+                borderWidth: 3,
+                pointRadius: 0,
+                pointHoverRadius: 6,
+                pointBackgroundColor: "#06b6d4",
+                tension: 0.4,
+                fill: true,
+                backgroundColor: (context) => {
+                  const ctx = context.chart.ctx;
+                  const gradient = ctx.createLinearGradient(
+                    0,
+                    0,
+                    0,
+                    context.chart.height,
+                  );
+                  gradient.addColorStop(0, "rgba(6, 182, 212, 0.25)");
+                  gradient.addColorStop(1, "rgba(6, 182, 212, 0.0)");
+                  return gradient;
+                },
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: {
+                grid: { color: "rgba(255, 255, 255, 0.03)" },
+                ticks: { color: "#6b7280", font: { family: "JetBrains Mono" } },
+              },
+              y: {
+                grid: { color: "rgba(255, 255, 255, 0.03)" },
+                ticks: { color: "#6b7280", font: { family: "JetBrains Mono" } },
+              },
+            },
+          },
+        });
+      }
+
+      function appendLog(message, variation = "") {
+        const now = new Date();
+        const timestamp = `[${now.toLocaleTimeString()}]`;
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${variation}`;
+        entry.innerHTML = `<span class="timestamp">${timestamp}</span>${message}`;
+        logStream.appendChild(entry);
+        logStream.scrollTop = logStream.scrollHeight;
+      }
+
+      function connectMQTT() {
+        appendLog(
+          `Connecting to secure endpoint wss://${MQTT_BROKER}:${MQTT_PORT}...`,
+          "system",
+        );
+        statusText.innerText = "Connecting";
+        brokerIdentity.innerText = `${MQTT_BROKER}:${MQTT_PORT}`;
+
+        client = new Paho.MQTT.Client(MQTT_BROKER, MQTT_PORT, clientID);
+        client.onConnectionLost = onConnectionLost;
+        client.onMessageArrived = onMessageArrived;
+
+        const options = {
+          onSuccess: onConnect,
+          onFailure: onFailure,
+          useSSL: true,
+          timeout: 5,
+        };
+
+        client.connect(options);
+      }
+
+      function onConnect() {
+        appendLog(
+          "WebSocket secure pipeline authentication established successfully.",
+          "system",
+        );
+        statusText.innerText = "Live Connected";
+        statusPill.classList.add("connected");
+        metaTopic.innerText = MQTT_TOPIC;
+
+        client.subscribe(MQTT_TOPIC);
+        appendLog(
+          `Subscribed directly to metric ingress tracking: "${MQTT_TOPIC}"`,
+        );
+      }
+
+      function onFailure(error) {
+        appendLog(`Pipeline linkage failure: ${error.errorMessage}`, "error");
+        statusText.innerText = "Fault Encountered";
+        statusPill.classList.remove("connected");
+        setTimeout(connectMQTT, 5000);
+      }
+
+      function onConnectionLost(responseObject) {
+        if (responseObject.errorCode !== 0) {
+          appendLog(
+            `Remote endpoint disconnected pipeline context: ${responseObject.errorMessage}`,
+            "error",
+          );
+          statusText.innerText = "Offline";
+          statusPill.classList.remove("connected");
+          tempValueEl.innerText = "--";
+          setTimeout(connectMQTT, 5000);
+        }
+      }
+
+      function onMessageArrived(message) {
+        const rawPayload = message.payloadString;
+        const timeStamp = new Date().toLocaleTimeString();
+
+        appendLog(`Ingress frame payload packet: ${rawPayload}`);
+
+        const value = parseFloat(rawPayload);
+        if (!isNaN(value)) {
+          // Flash interaction color transition
+          tempValueEl.style.color = "var(--accent-purple)";
+          setTimeout(() => {
+            tempValueEl.style.color = "var(--text-main)";
+          }, 250);
+
+          tempValueEl.innerText = value.toFixed(2);
+          metaTime.innerText = timeStamp;
+
+          // Handle data buffers for linear canvas charting
+          trackingData.push(value);
+          trackingLabels.push(timeStamp);
+
+          if (trackingData.length > maxBufferPoints) {
+            trackingData.shift();
+            trackingLabels.shift();
+          }
+          logChart.update();
+        }
+      }
+
+      window.onload = () => {
+        initTimelineGraph();
+        connectMQTT();
+      };
+    </script>
+  </body>
+</html>
